@@ -3,7 +3,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMa
 
 def terms_keyboard():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(text="✅ Roziman", callback_data="terms_accept")]]
+        [[InlineKeyboardButton(text="✅ SHARTLARGA ROZIMAN", callback_data="terms_accept")]]
     )
 
 
