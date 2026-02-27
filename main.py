@@ -54,10 +54,15 @@ WAITING_INSTAGRAM, WAITING_NAME, WAITING_PHONE = range(3)
 
 # Admin flow states
 ADMIN_LOGIN, SEARCH_USER_ID, BROADCAST = range(100, 103)
+ACTIVE_USERS_DAYS = 90
 
 
 def is_admin(user_id: int) -> bool:
     return user_id in admin_ids
+
+
+def _active_users_count() -> int:
+    return len(get_active_users(ACTIVE_USERS_DAYS))
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -116,7 +121,10 @@ async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     touch_user(update.effective_user.id)
     if (update.message.text or "").strip() == ADMIN_PASSWORD:
         admin_ids.add(update.effective_user.id)
-        await update.message.reply_text("✅ Admin panelga xush kelibsiz.", reply_markup=admin_menu())
+        await update.message.reply_text(
+            "✅ Admin panelga xush kelibsiz.",
+            reply_markup=admin_menu(_active_users_count()),
+        )
         return ConversationHandler.END
     await update.message.reply_text("❌ Noto'g'ri parol.")
     return ADMIN_LOGIN
@@ -127,17 +135,20 @@ async def admin_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     touch_user(update.effective_user.id)
     text = (update.message.text or "").strip()
-    if text == "📣 REKLAMA YUBORISH":
+    if "REKLAMA YUBORISH" in text:
         await update.message.reply_text("📣 Reklama kontentini yuboring (text/rasm/video/link).")
         return BROADCAST
-    if text == "🔎 QIDIRISH":
+    if "QIDIRISH" in text:
         await update.message.reply_text("🔎 Qidirish uchun User ID kiriting:")
         return SEARCH_USER_ID
-    if text == "📄 USERLAR RO'YHATI TEXT":
+    if "USERLAR RO'YHATI TEXT" in text:
         await send_users_list_text(update, context)
         return ConversationHandler.END
-    if text == "🧾 USERLAR RO'YHATI PDF":
+    if "USERLAR RO'YHATI PDF" in text:
         await send_users_list_pdf(update, context)
+        return ConversationHandler.END
+    if "FAOL USERLAR" in text:
+        await send_active_users_count(update, context)
         return ConversationHandler.END
     return ConversationHandler.END
 
@@ -179,7 +190,7 @@ async def admin_search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Views: {views}\n"
         f"Reyting: {rating}\n"
         f"Created: {created_at}",
-        reply_markup=admin_menu(),
+        reply_markup=admin_menu(_active_users_count()),
     )
     return ConversationHandler.END
 
@@ -188,10 +199,12 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
     touch_user(update.effective_user.id)
-    users = get_active_users(90)
+    users = get_active_users(ACTIVE_USERS_DAYS)
     sent = 0
     failed = 0
-    await update.message.reply_text("🚀 Reklama yuborish boshlandi (oxirgi 90 kun aktiv userlar). Iltimos kuting...")
+    await update.message.reply_text(
+        f"🚀 Reklama yuborish boshlandi (oxirgi {ACTIVE_USERS_DAYS} kun aktiv userlar). Iltimos kuting..."
+    )
     for row in users:
         user_id = row[0]
         try:
@@ -207,7 +220,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text(
         f"✅ Yuborildi: {sent} ta. ❌ Xato: {failed} ta.",
-        reply_markup=admin_menu(),
+        reply_markup=admin_menu(_active_users_count()),
     )
     return ConversationHandler.END
 
@@ -229,7 +242,10 @@ async def send_users_list_text(update: Update, context: ContextTypes.DEFAULT_TYP
     touch_user(update.effective_user.id)
     users = get_all_users()
     if not users:
-        await update.message.reply_text("ℹ️ Hozircha user yo'q.", reply_markup=admin_menu())
+        await update.message.reply_text(
+            "ℹ️ Hozircha user yo'q.",
+            reply_markup=admin_menu(_active_users_count()),
+        )
         return
     lines = []
     for row in users:
@@ -243,7 +259,7 @@ async def send_users_list_text(update: Update, context: ContextTypes.DEFAULT_TYP
     # Telegram limit: split if too long
     for chunk in _split_text(text, 3500):
         await update.message.reply_text(chunk)
-    await update.message.reply_text("✅ Tugadi.", reply_markup=admin_menu())
+    await update.message.reply_text("✅ Tugadi.", reply_markup=admin_menu(_active_users_count()))
 
 
 async def send_users_list_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,6 +270,15 @@ async def send_users_list_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE
     pdf_path = export_dir / "users.pdf"
     export_users_pdf(users, pdf_path)
     await update.message.reply_document(document=str(pdf_path), caption="🧾 Users ro'yhati (PDF)")
+
+
+async def send_active_users_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    touch_user(update.effective_user.id)
+    count = _active_users_count()
+    await update.message.reply_text(
+        f"👥 Oxirgi {ACTIVE_USERS_DAYS} kunda faol userlar: {count} ta.",
+        reply_markup=admin_menu(count),
+    )
 
 
 def _split_text(text: str, limit: int):
@@ -318,7 +343,14 @@ def main():
     )
 
     admin_actions_flow = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(r"^(📣 REKLAMA YUBORISH|🔎 QIDIRISH|📄 USERLAR RO'YHATI TEXT|🧾 USERLAR RO'YHATI PDF)$"), admin_menu_router)],
+        entry_points=[
+            MessageHandler(
+                filters.Regex(
+                    r"^(?:[^\w']+\s)?(?:REKLAMA YUBORISH|QIDIRISH|USERLAR RO'YHATI TEXT|USERLAR RO'YHATI PDF|FAOL USERLAR(?: \(\d+\))?)$"
+                ),
+                admin_menu_router,
+            )
+        ],
         states={
             SEARCH_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_search_user)],
             BROADCAST: [MessageHandler(filters.ALL & ~filters.COMMAND, admin_broadcast)],
@@ -327,9 +359,9 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(user_flow)
     app.add_handler(admin_login_flow)
     app.add_handler(admin_actions_flow)
+    app.add_handler(user_flow)
 
     app.run_polling()
 
